@@ -40,12 +40,14 @@ export function createDownloadManager(config) {
     barIncompleteChar: '\u2591',
     align: 'left',
     autopadding: true,
-    forceRedraw: true,
-    barsize: 30
+    forceRedraw: false,
+    barsize: 30,
+    stopOnComplete: true
   });
 
   let threadBars = [];
   let mergeBar = null;
+  let isCompleted = false;
 
   const totalTimer = new Timer();
   const downloadTimer = new Timer();
@@ -78,6 +80,7 @@ export function createDownloadManager(config) {
 
     return new Promise((resolve, reject) => {
       response.data.on('data', (chunk) => {
+        if (isCompleted) return;
         downloadedBytes += chunk.length;
         threadDownloaded += chunk.length;
         const threadSpeed = (threadDownloaded / (Date.now() - startTime) * 1000 / 1024 / 1024).toFixed(2);
@@ -90,11 +93,13 @@ export function createDownloadManager(config) {
       response.data.pipe(writeStream, { end: false });
       
       response.data.once('end', () => {
-        // 确保进度条显示100%
-        threadBar.update(chunkSize, {
-          speed: '已完成',
-          value_mb: (chunkSize / (1024 * 1024)).toFixed(2)
-        });
+        if (!isCompleted) {
+          // 确保进度条显示100%
+          threadBar.update(chunkSize, {
+            speed: '已完成',
+            value_mb: (chunkSize / (1024 * 1024)).toFixed(2)
+          });
+        }
         resolve();
       });
 
@@ -138,60 +143,41 @@ export function createDownloadManager(config) {
       let completedTasks = 0;
       const downloadPromises = tasks.map(task => 
         task.then(() => {
-          completedTasks++;
-          mergeBar.update(completedTasks, {
-            value_mb: completedTasks.toString()
-          });
+          if (!isCompleted) {
+            completedTasks++;
+            mergeBar.update(completedTasks, {
+              value_mb: completedTasks.toString()
+            });
+          }
         })
       );
 
-      // 使用once代替on以避免内存泄漏
-      writeStream.once('finish', async () => {
-        // 添加更长的延时确保进度条更新完成
-        await new Promise(resolve => setTimeout(resolve, 100));
-        // 强制所有进度条显示100%
-        threadBars.forEach((bar, index) => {
-          const chunkSize = index === threads - 1 ? 
-            totalSize - (Math.ceil(totalSize / threads) * index) : 
-            Math.ceil(totalSize / threads);
-          bar.update(chunkSize, {
-            speed: '已完成',
-            value_mb: (chunkSize / (1024 * 1024)).toFixed(2)
-          });
-        });
-        mergeBar.update(threads, {
-          value_mb: threads.toString()
-        });
+      // 监听写入流完成事件
+      writeStream.once('finish', () => {
+        // 写入流完成时不需要额外操作，进度条已在各自线程中更新
       });
 
       await Promise.all(downloadPromises);
       downloadTimer.stop();
-      console.log(`\n下载完成，耗时: ${downloadTimer.getDuration()}秒`);
       
-      // 强制重绘所有进度条
-      multibar.update();
+      // 标记为完成，停止所有进度条更新
+      isCompleted = true;
       
-      // 确保所有下载线程进度条显示100%
-      await new Promise(resolve => setTimeout(resolve, 50));
-      threadBars.forEach((bar, index) => {
-        const chunkSize = index === threads - 1 ? 
-          totalSize - (Math.ceil(totalSize / threads) * index) : 
-          Math.ceil(totalSize / threads);
-        bar.update(chunkSize, {
-          speed: '已完成',
-          value_mb: (chunkSize / (1024 * 1024)).toFixed(2)
-        });
-      });
-      
+      // 结束写入流
       writeStream.end();
       await new Promise(resolve => writeStream.once('close', resolve));
       
       mergeTimer.stop();
-      console.log(`\n合并完成，耗时: ${mergeTimer.getDuration()}秒`);
-
-      multibar.stop();
       totalTimer.stop();
-      console.log(`\n总耗时: ${totalTimer.getDuration()}秒`);
+      
+      // 停止进度条显示
+      multibar.stop();
+      
+      // 输出完成信息
+      console.log(`\n下载完成，耗时: ${downloadTimer.getDuration()}秒`);
+      console.log(`合并完成，耗时: ${mergeTimer.getDuration()}秒`);
+      console.log(`总耗时: ${totalTimer.getDuration()}秒`);
+      console.log(`\n下载完成！`);
     } catch (error) {
       multibar.stop();
       throw error;

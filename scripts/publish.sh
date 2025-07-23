@@ -5,6 +5,18 @@ set -e
 
 echo "🚀 准备发布 @lpb_name/down 包..."
 
+# 版本类型参数 (major, minor, patch)
+VERSION_TYPE=${1:-patch}
+
+if [[ "$VERSION_TYPE" != "major" && "$VERSION_TYPE" != "minor" && "$VERSION_TYPE" != "patch" ]]; then
+    echo "❌ 无效的版本类型: $VERSION_TYPE"
+    echo "💡 使用方法: ./publish.sh [major|minor|patch]"
+    echo "   - major: 主版本号 (1.0.0 -> 2.0.0) - 重大更新"
+    echo "   - minor: 次版本号 (1.0.0 -> 1.1.0) - 新功能"
+    echo "   - patch: 修订版本号 (1.0.0 -> 1.0.1) - bug修复"
+    exit 1
+fi
+
 # 检查是否已登录npm
 echo "📋 检查npm登录状态..."
 if ! npm whoami > /dev/null 2>&1; then
@@ -15,6 +27,16 @@ fi
 # 检查当前用户
 NPM_USER=$(npm whoami)
 echo "✅ 当前npm用户: $NPM_USER"
+
+# 获取当前版本
+CURRENT_VERSION=$(node -p "require('./package.json').version")
+echo "📌 当前版本: $CURRENT_VERSION"
+
+# 自动递增版本号
+echo "🔢 递增版本号 ($VERSION_TYPE)..."
+npm version $VERSION_TYPE --no-git-tag-version
+NEW_VERSION=$(node -p "require('./package.json').version")
+echo "✅ 新版本: $NEW_VERSION"
 
 # 检查包名是否可用
 echo "🔍 检查包名可用性..."

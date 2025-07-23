@@ -68,7 +68,6 @@ program
       });
 
       await downloader.start();
-      console.log('\n下载完成！');
       
     } catch (error) {
       if (error.message.includes('Invalid URL')) {

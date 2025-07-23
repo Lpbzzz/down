@@ -1,6 +1,6 @@
 {
   "name": "@lpb_name/down",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "A Node.js download manager with multi-threading support",
   "main": "src/index.js",
   "bin": {
