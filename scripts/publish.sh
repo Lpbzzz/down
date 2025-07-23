@@ -19,13 +19,13 @@ fi
 
 # 检查是否已登录npm
 echo "📋 检查npm登录状态..."
-if ! npm whoami > /dev/null 2>&1; then
-    echo "❌ 请先登录npm: npm login"
+if ! pnpm whoami > /dev/null 2>&1; then
+    echo "❌ 请先登录npm: pnpm login"
     exit 1
 fi
 
 # 检查当前用户
-NPM_USER=$(npm whoami)
+NPM_USER=$(pnpm whoami)
 echo "✅ 当前npm用户: $NPM_USER"
 
 # 获取当前版本
@@ -34,13 +34,13 @@ echo "📌 当前版本: $CURRENT_VERSION"
 
 # 自动递增版本号
 echo "🔢 递增版本号 ($VERSION_TYPE)..."
-npm version $VERSION_TYPE --no-git-tag-version
+pnpm version $VERSION_TYPE --no-git-tag-version
 NEW_VERSION=$(node -p "require('./package.json').version")
 echo "✅ 新版本: $NEW_VERSION"
 
 # 检查包名是否可用
 echo "🔍 检查包名可用性..."
-if npm view @lpb_name/down > /dev/null 2>&1; then
+if pnpm view @lpb_name/down > /dev/null 2>&1; then
     echo "⚠️  包 @lpb_name/down 已存在，将发布新版本"
 else
     echo "✅ 包名可用"
@@ -69,11 +69,11 @@ echo "✅ 文件结构检查通过"
 
 # 发布包
 echo "📦 发布包到npm..."
-npm publish --access public
+pnpm publish --access public
 
 if [ $? -eq 0 ]; then
     echo "🎉 发布成功！"
-    echo "📥 安装命令: npm install -g @lpb_name/down"
+    echo "📥 安装命令: pnpm add -g @lpb_name/down 或 npm install -g @lpb_name/down"
     echo "🔧 使用命令: down <url>"
 else
     echo "❌ 发布失败"
