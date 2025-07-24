@@ -58,7 +58,7 @@ export function createDownloadManager(config) {
     return parseInt(response.headers['content-length']);
   }
 
-  async function downloadChunk(start, end, writeStream, index) {
+  async function downloadChunk(start, end, index) {
     const chunkSize = end - start + 1;
     let threadDownloaded = 0;
     const threadBar = multibar.create(chunkSize, 0, {
@@ -69,6 +69,11 @@ export function createDownloadManager(config) {
     });
     threadBars[index] = threadBar;
     const startTime = Date.now();
+    
+    // 创建临时文件
+    const tempFile = `${output}.part${index}`;
+    const writeStream = fs.createWriteStream(tempFile);
+    
     const response = await axios({
       url,
       method: 'GET',
@@ -90,9 +95,13 @@ export function createDownloadManager(config) {
         });
       });
 
-      response.data.pipe(writeStream, { end: false });
+      response.data.pipe(writeStream);
       
       response.data.once('end', () => {
+        writeStream.end();
+      });
+      
+      writeStream.once('finish', () => {
         if (!isCompleted) {
           // 确保进度条显示100%
           threadBar.update(chunkSize, {
@@ -100,10 +109,14 @@ export function createDownloadManager(config) {
             value_mb: (chunkSize / (1024 * 1024)).toFixed(2)
           });
         }
-        resolve();
+        resolve(tempFile);
       });
 
       response.data.once('error', (error) => {
+        reject(error);
+      });
+      
+      writeStream.once('error', (error) => {
         reject(error);
       });
     });
@@ -118,17 +131,21 @@ export function createDownloadManager(config) {
 
       downloadTimer.start();
 
-      // 创建写入流
-      const writeStream = fs.createWriteStream(output);
-
       // 创建下载任务
       const tasks = [];
       for (let i = 0; i < threads; i++) {
         const start = i * chunkSize;
         const end = i === threads - 1 ? totalSize - 1 : start + chunkSize - 1;
-        tasks.push(downloadChunk(start, end, writeStream, i));
+        tasks.push(downloadChunk(start, end, i));
       }
 
+      // 等待所有下载完成
+      const tempFiles = await Promise.all(tasks);
+      downloadTimer.stop();
+      
+      // 标记为完成，停止所有进度条更新
+      isCompleted = true;
+      
       // 开始合并文件
       mergeTimer.start();
       mergeBar = multibar.create(threads, 0, {
@@ -140,32 +157,30 @@ export function createDownloadManager(config) {
         format: '{threadId} |{bar}| {percentage}% | 已合并: {value_mb}/{total_mb}个分片'
       });
       
-      let completedTasks = 0;
-      const downloadPromises = tasks.map(task => 
-        task.then(() => {
-          if (!isCompleted) {
-            completedTasks++;
-            mergeBar.update(completedTasks, {
-              value_mb: completedTasks.toString()
+      // 合并临时文件
+      const finalWriteStream = fs.createWriteStream(output);
+      
+      for (let i = 0; i < tempFiles.length; i++) {
+        const tempFile = tempFiles[i];
+        const readStream = fs.createReadStream(tempFile);
+        
+        await new Promise((resolve, reject) => {
+          readStream.pipe(finalWriteStream, { end: false });
+          readStream.once('end', () => {
+            mergeBar.update(i + 1, {
+              value_mb: (i + 1).toString()
             });
-          }
-        })
-      );
-
-      // 监听写入流完成事件
-      writeStream.once('finish', () => {
-        // 写入流完成时不需要额外操作，进度条已在各自线程中更新
-      });
-
-      await Promise.all(downloadPromises);
-      downloadTimer.stop();
+            // 删除临时文件
+            fs.unlinkSync(tempFile);
+            resolve();
+          });
+          readStream.once('error', reject);
+        });
+      }
       
-      // 标记为完成，停止所有进度条更新
-      isCompleted = true;
-      
-      // 结束写入流
-      writeStream.end();
-      await new Promise(resolve => writeStream.once('close', resolve));
+      // 结束最终文件写入
+      finalWriteStream.end();
+      await new Promise(resolve => finalWriteStream.once('close', resolve));
       
       mergeTimer.stop();
       totalTimer.stop();
